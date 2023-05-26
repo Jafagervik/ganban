@@ -25,6 +25,7 @@ LOAD_MODEL = False
 TRAIN_RATIO = 0.65
 VALIDATE_RATIO = 0.15
 TEST_RATIO = 0.2
+GAMMA = 0.7
 
 # Directories
 TRAIN_DIR = "data/pizza_steak_sushi/train"

@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR
 from typing import Tuple
 
 
@@ -48,6 +49,7 @@ def train_step(
     return train_loss, train_acc
 
 
+@torch.inference_mode()
 def test_step(
     model: nn.Module,
     dataloader: DataLoader,
@@ -65,7 +67,7 @@ def test_step(
     test_loss, test_acc = 0, 0
 
     # Go through the batches in current epoch
-    with torch.inference_mode():
+    with torch.inference_mode():  # TODO: find out if this is needed anymore
         for _, (X, y) in dataloader:
             X = X.to(device)
             y = y.to(device)
@@ -95,6 +97,7 @@ def train(
     test_dataloader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: StepLR,
     epochs: int,
     device: torch.device
 ):
@@ -111,6 +114,8 @@ def train(
 
         test_loss, test_acc = test_step(
             model, test_dataloader, criterion,  device)
+
+        scheduler.step()
 
         print(
             f"Epoch: {epoch+1} | "

@@ -13,12 +13,19 @@ def argsparser():
     parser.add_argument("epochs")
 
 
+def print_number_of_parameters(net: nn.Module):
+    n_parameters = sum(p.numel() for p in net.parameters())
+    print(f"number of params (M): {(n_parameters / 1.e6):2f}")
+
+
 def setup_transforms():
     """
-    Setup transforms
+    Setup transforms on images
     """
     data_transform = transforms.Compose([
         transforms.Resize((64, 64)),
+        # TODO: Should we even normalize?
+        transforms.Normalize((0.1307,), (0.3081,)),
         transforms.ToTensor()
     ])
 
