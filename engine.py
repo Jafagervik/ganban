@@ -81,8 +81,8 @@ def test_step(
             test_acc += ((test_pred_labels == y).sum().item() /
                          len(test_pred_labels))
 
-    test_loss = test_loss / len(dataloader)
-    test_acc = test_acc / len(dataloader)
+    test_loss /= len(dataloader)
+    test_acc /= len(dataloader)
 
     return test_loss, test_acc
 
