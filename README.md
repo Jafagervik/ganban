@@ -1,5 +1,7 @@
 # GANBan
 
+[![.github/workflows/ci.yml](https://github.com/github/gh-actions-importer/actions/workflows/ci.yml/badge.svg)](https://github.com/github/gh-actions-importer/actions/workflows/ci.yml)
+
 ![Latex Template](https://www.overleaf.com/project/64701303929650ecbc4f107c)
 
 

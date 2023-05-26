@@ -1,0 +1,11 @@
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+
+env:
+  PYTHON_VERSION: "3.10.x"
+
+
+
