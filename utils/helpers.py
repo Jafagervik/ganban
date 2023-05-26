@@ -1,5 +1,6 @@
 from pathlib import Path
 import torch
+from torch import nn
 from torchvision import transforms
 from argparse import ArgumentParser
 
@@ -54,5 +55,13 @@ def save_model(model: torch.nn.Module,
                f=model_save_path)
 
 
-def load_model(path: str) -> torch.nn.Module:
-    pass
+def load_model(net: nn.Module, path: str) -> nn.Module:
+    """
+    Loads pretrained weights back into a model
+
+    Args:
+        net: Model
+        path: full path to .pt or .pth file
+    """
+    net.load_state_dict(torch.load(path))
+    return net

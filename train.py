@@ -9,7 +9,8 @@ from model import Net
 from utils import helpers
 
 from config import (BATCH_SIZE, EPOCHS, HIDDEN_UNITS,
-                    IMG_SIZE, DEVICE, LR, NUM_CHANNELS, TRAIN_DIR, TEST_DIR)
+                    IMG_SIZE, DEVICE, LR, NUM_CHANNELS, TRAIN_DIR,
+                    TEST_DIR, SAVE_MODEL, LOAD_MODEL)
 
 
 def main():
@@ -38,6 +39,9 @@ def main():
         output_shape=len(class_names)
     ).to(DEVICE)
 
+    if LOAD_MODEL:
+        model = helpers.load_model(model, "path")
+
     # Set loss and optimizer
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(),
@@ -53,9 +57,10 @@ def main():
                  device=DEVICE)
 
     # Save the model with help from utils.py
-    helpers.save_model(model=model,
-                       target_dir="models",
-                       model_name="05_going_modular_script_mode_tinyvgg_model.pth")
+    if SAVE_MODEL:
+        helpers.save_model(model=model,
+                           target_dir="models",
+                           model_name="somewhere.pth")
 
 
 if __name__ == "__main__":
