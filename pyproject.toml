@@ -1,0 +1,18 @@
+[project]
+name = "torchtemplate"
+version = "0.0.1"
+authors = [
+    {
+        name="Jafagervik", email="jorgenafagervik@gmail.com"
+    }
+]
+description = "Pytorch template for lazy people like me"
+readme = "README.md"
+requires_python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+
