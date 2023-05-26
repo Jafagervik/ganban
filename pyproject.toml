@@ -1,10 +1,20 @@
 [project]
-name = "torchtemplate"
+name = "Ganban"
 version = "0.0.1"
 authors = [
     {
         name="Jafagervik", email="jorgenafagervik@gmail.com"
-    }
+    },
+    {
+        name="John", email="jorgenafagervik@gmail.com"
+    },
+    {
+        name="Nico", email="jorgenafagervik@gmail.com"
+    },
+    {
+        name="Lachlan", email="jorgenafagervik@gmail.com"
+    },
+    
 ]
 description = "Pytorch template for lazy people like me"
 readme = "README.md"
