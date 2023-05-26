@@ -1,7 +1,6 @@
 """
 engine.py basically defines what a train and a test step is
 """
-from config import EPOCHS
 from tqdm import tqdm
 import torch
 from torch import nn
@@ -16,7 +15,7 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     device: torch.device
 ) -> Tuple[float, float]:
-    """ Performs one epoch worth of training
+    """Performs one epoch worth of training
 
     Returns:
         train loss and accuracy
@@ -106,7 +105,7 @@ def train(
         "test_acc": [],
     }
 
-    for epoch in tqdm(range(EPOCHS)):
+    for epoch in tqdm(range(epochs)):
         train_loss, train_acc = train_step(
             model, train_dataloader, criterion, optimizer, device)
 

@@ -34,12 +34,6 @@ with zipfile.ZipFile(data_path / "pizza_steak_sushi.zip", "r") as zip_ref:
 os.remove(data_path / "pizza_steak_sushi.zip")
 
 
-"""
-Contains functionality for creating PyTorch DataLoaders for 
-image classification data.
-"""
-
-
 def create_dataloaders(
     train_dir: str,
     test_dir: str,
@@ -60,6 +54,7 @@ def create_dataloaders(
         num_workers=num_workers,
         pin_memory=True,
     )
+
     test_dataloader = DataLoader(
         test_data,
         batch_size=batch_size,

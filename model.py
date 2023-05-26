@@ -23,8 +23,9 @@ class Block(nn.Module):
 
 
 class Net(nn.Module):
-    """
-        >> Insane homemade network
+    """Insane homemade network
+
+    Never ever have such an insane net been created
     """
 
     def __init__(
