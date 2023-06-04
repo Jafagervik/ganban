@@ -31,7 +31,7 @@ with zipfile.ZipFile(data_path / "pizza_steak_sushi.zip", "r") as zip_ref:
     zip_ref.extractall(image_path)
 
 # Remove zip file
-os.remove(data_path / "pizza_steak_sushi.zip")
+os.remove(data_path / "anime.zip")
 
 
 def create_dataloaders(

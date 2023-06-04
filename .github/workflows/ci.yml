@@ -5,7 +5,7 @@ on:
 
 
 env:
-  PYTHON_VERSION: "3.10.x"
+  PYTHON_VERSION: "3.11.x"
 
 
 
