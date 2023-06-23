@@ -1,5 +1,5 @@
 from config import NUM_WORKERS
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 import os
 import requests
@@ -34,6 +34,25 @@ with zipfile.ZipFile(data_path / "pizza_steak_sushi.zip", "r") as zip_ref:
 os.remove(data_path / "anime.zip")
 
 
+class SpectrogramDataset(Dataset):
+    """
+    Our dataset consists of mel spectrogram as well as certain timestamps
+    required for certain intervals
+    """
+    def __init__(self):
+        """
+        Docs: ...
+        """
+
+    def __len__(self) -> int:
+        return len([])
+
+    def __getitem__(self, idx):
+        return 0
+
+    
+
+
 def create_dataloaders(
     train_dir: str,
     test_dir: str,
@@ -41,6 +60,7 @@ def create_dataloaders(
     batch_size: int,
     num_workers: int = NUM_WORKERS
 ):
+    # TODO: Add our own custom dataset
     train_data = datasets.ImageFolder(train_dir, transform=transform)
     test_data = datasets.ImageFolder(test_dir, transform=transform)
 

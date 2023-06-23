@@ -5,12 +5,32 @@ from torchvision import transforms
 from argparse import ArgumentParser
 
 
-def argsparser():
-    parser = ArgumentParser(prog="SugmaNet", description="no", epilog="byebye")
-    parser.add_argument("model")
-    parser.add_argument("batch_size")
-    parser.add_argument("lr")
-    parser.add_argument("epochs")
+def parse_args():
+    """
+    Argument parsing in cuda
+    """
+    parser = ArgumentParser(description='PyTorch MNIST Example using RNN')
+    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
+    parser.add_argument('--epochs', type=int, default=14, metavar='N',
+                        help='number of epochs to train (default: 14)')
+    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+                        help='learning rate (default: 0.1)')
+    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
+                        help='learning rate step gamma (default: 0.7)')
+    parser.add_argument('--dry-run', action='store_true', default=False,
+                        help='quickly check a single pass')
+    parser.add_argument('--seed', type=int, default=1, metavar='S',
+                        help='random seed (default: 1)')
+    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                        help='how many batches to wait before logging training status')
+    parser.add_argument('--save-model', action='store_true', default=False,
+                        help='for Saving the current Model')
+    parser.add_argument('--load-model', action='store_true', default=False,
+                        help='for Loading the best model')
+    return parser.parse_args()
 
 
 def print_number_of_parameters(net: nn.Module):

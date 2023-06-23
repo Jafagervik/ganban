@@ -37,9 +37,9 @@ class Net(nn.Module):
         super().__init__()
 
         self.b1 = Block(input_shape, 10, 3, 1, 1)
-        self.sigmoid = nn.Sigmoid()
+        self.act = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor):
         x = self.b1(x)
-        x = self.sigmoid(x)
+        x = self.act(x)
         return x
