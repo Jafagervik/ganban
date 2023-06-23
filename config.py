@@ -28,5 +28,5 @@ TEST_RATIO = 0.2
 GAMMA = 0.7
 
 # Directories
-TRAIN_DIR = "data/anime/train"
-TEST_DIR = "data/anime/test"
+TRAIN_DIR = "data/audio/train"
+TEST_DIR = "data/audio/test"

@@ -108,6 +108,7 @@ def train(
         "test_acc": [],
     }
 
+
     for epoch in tqdm(range(epochs)):
         train_loss, train_acc = train_step(
             model, train_dataloader, criterion, optimizer, device)

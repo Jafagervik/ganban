@@ -42,6 +42,8 @@ def main():
         output_shape=len(class_names)
     )
 
+
+    compiled = torch.compile(model)
     # Parallel model in case of multiple gpus
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)

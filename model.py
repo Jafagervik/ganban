@@ -15,8 +15,8 @@ class Block(nn.Module):
 
     def forward(self, x: torch.Tensor):
         x = self.conv(x)
-        x = self.mp(x)
         x = self.act(x)
+        x = self.mp(x)
         x = self.dropout(x)
 
         return x
