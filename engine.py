@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
 from typing import Tuple
 
+from utils import helpers
+from config import BEST_CHCKPT_PATH
 
 def train_step(
     model: nn.Module,
@@ -108,13 +110,19 @@ def train(
         "test_acc": [],
     }
 
+    highest_acc = 0.0
 
-    for epoch in tqdm(range(epochs)):
+    for epoch in tqdm(range(1, epochs + 1)):
         train_loss, train_acc = train_step(
             model, train_dataloader, criterion, optimizer, device)
 
         test_loss, test_acc = test_step(
             model, test_dataloader, criterion,  device)
+
+        if test_acc > highest_acc:
+            helpers.save_model(model=model,
+                            target_dir="checkpoints",
+                            model_name=BEST_CHCKPT_PATH)
 
         scheduler.step()
 

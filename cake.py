@@ -164,7 +164,7 @@ def main():
 
     # Transfer learning
     if args.load_model:
-        model.load_state_dict(torch.load("best_model.pt"))
+        model.load_state_dict(torch.load("checkpoints/best_model.pt"))
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
@@ -178,7 +178,7 @@ def main():
         scheduler.step()
 
     if args.save_model:
-        torch.save(model.state_dict(), "mnist_rnn.pt")
+        torch.save(model.state_dict(), "checkpoints/mnist_rnn.pt")
 
 
 if __name__ == '__main__':

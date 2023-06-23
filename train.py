@@ -10,19 +10,20 @@ import engine
 from model import Net
 from utils import helpers
 
-from config import (BATCH_SIZE, EPOCHS, HIDDEN_UNITS,
-                    IMG_SIZE, DEVICE, LR, NUM_CHANNELS, RANDOM_SEED, TRAIN_DIR,
-                    TEST_DIR, SAVE_MODEL, LOAD_MODEL, GAMMA)
+from config import (BATCH_SIZE,  HIDDEN_UNITS,
+                    IMG_SIZE,  NUM_CHANNELS, RANDOM_SEED, TRAIN_DIR,
+                    TEST_DIR, BEST_CHCKPT_PATH )
 
 
 def main():
     """
     ENTRY POINT
     """
-    args = helpers.argsparser()
+    args = helpers.parse_args()
     helpers.random_seed_all(RANDOM_SEED)
 
     # TODO: Parse args and use them while training
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Create transforms
     data_transform = helpers.setup_transforms()
@@ -42,22 +43,23 @@ def main():
         output_shape=len(class_names)
     )
 
+    if args.load_model:
+        model = helpers.load_model(model, BEST_CHCKPT_PATH)
+
 
     compiled = torch.compile(model)
     # Parallel model in case of multiple gpus
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
 
-    model.to(DEVICE)
+    model.to(device)
 
-    if LOAD_MODEL:
-        model = helpers.load_model(model, "path")
 
     # Set up loss function, optimizer and learning rate scheduler
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(),
-                                 lr=LR)
-    scheduler = StepLR(optimizer, step_size=1, gamma=GAMMA)
+                                 lr=args.lr)
+    scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
     # Start training with help from engine.py
     engine.train(model=model,
@@ -66,16 +68,16 @@ def main():
                  criterion=criterion,
                  optimizer=optimizer,
                  scheduler=scheduler,
-                 epochs=EPOCHS,
-                 device=DEVICE)
+                 epochs=args.epochs,
+                 device=device)
 
     helpers.print_number_of_parameters(model)
 
     # Save the model with help from utils.py
-    if SAVE_MODEL:
+    if args.save_model:
         helpers.save_model(model=model,
-                           target_dir="models",
-                           model_name="somewhere.pth")
+                           target_dir="checkpoints",
+                           model_name="ganban_model.pt")
 
 
 if __name__ == "__main__":
