@@ -39,28 +39,27 @@ def run_process(rank, args, config, train_dataset, test_dataset):
         args: struct: flags used when running script
         config, yaml dict: all hyperparams and setup info
     """
+    # if WORLD_SZ > 1:
     dist.init_process_group("nccl", world_size=WORLD_SZ, rank=rank)
-    # init_method="tcp://127.0.0.1:54621"
 
     # We here set the correct gpu to run on based on which rank we're in
     device = torch.device(f"cuda:{rank}")
 
-    # Seed all rngs
-    # utils.seed_all(args.seed)
 
     # model = UNet(channels=[1, 64, 128, 256, 512, 512, 4096, 4096, 10]).to(rank)
     model = ToyMpModel()
     compiled = torch.compile(model).to(rank)
 
-    #dist.barrier()
 
+    map_location = None
     # Wrap the model
-    compiled = DDP(compiled, device_ids=[rank])
+    if WORLD_SZ > 2:
+        compiled = DDP(compiled, device_ids=[rank])
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
 
     # Transfer learning
     if args.load_model:
-        map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-        compiled.load_state_dict(torch.load(config['checkpoint_best'], map_location=map_location))
+        compiled.load_state_dict(torch.load(config['checkpoint_best'], map_location=map_location if map_location else None))
 
     # Creates dataloaders based on ranks
     #train_dataloader, test_dataloader, class_names = create_dataloaders(config, world_size=WORLD_SZ, rank=rank)
@@ -74,22 +73,31 @@ def run_process(rank, args, config, train_dataset, test_dataset):
     train_kwargs.update(cuda_kwargs)
     test_kwargs.update(cuda_kwargs)
 
-    train_sampler = DistributedSampler(
-        train_dataset,
-        num_replicas=WORLD_SZ,
-        rank=rank,
-        shuffle=config['shuffle']
-    )
+    train_sampler, test_sampler = None, None
 
-    test_sampler = DistributedSampler(
-        test_dataset,
-        num_replicas=WORLD_SZ,
-        rank=rank,
-        shuffle=config['shuffle']
-    )
+    if WORLD_SZ > 1:
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=WORLD_SZ,
+            rank=rank,
+            shuffle=config['shuffle']
+        )
 
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, sampler=train_sampler, **train_kwargs)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, sampler=test_sampler, **test_kwargs)
+        test_sampler = DistributedSampler(
+            test_dataset,
+            num_replicas=WORLD_SZ,
+            rank=rank,
+            shuffle=config['shuffle']
+        )
+
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, 
+                                                   shuffle=False if train_sampler else True, 
+                                                   sampler=train_sampler if train_sampler else None, 
+                                                   **train_kwargs)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, 
+                                                    shuffle=False if test_sampler else True, 
+                                                  sampler=test_sampler if test_sampler else None,
+                                                  **test_kwargs)
 
     optimizer = optim.Adadelta(compiled.parameters(), lr=float(config['learning_rate']))
     criterion = nn.CrossEntropyLoss().cuda(rank)
@@ -115,7 +123,8 @@ def run_process(rank, args, config, train_dataset, test_dataset):
         rank=rank,
         writer=writer)
 
-    dist.barrier()
+    if WORLD_SZ > 1:
+        dist.barrier()
     dist.destroy_process_group()
 
 
