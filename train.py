@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from helpers.datasetup import init_datasets, init_dataloaders
-from models.unet import UNet
-from models.toymod import ToyMpModel
+from models.model import Net 
 from torch.optim.lr_scheduler import StepLR
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -45,15 +44,12 @@ def run_process(rank, args, config, train_dataset, test_dataset):
     # We here set the correct gpu to run on based on which rank we're in
     device = torch.device(f"cuda:{rank}")
 
-
-    # model = UNet(channels=[1, 64, 128, 256, 512, 512, 4096, 4096, 10]).to(rank)
-    model = ToyMpModel()
+    model = Net(1,728,10)
     compiled = torch.compile(model).to(rank)
 
-
     map_location = None
-    # Wrap the model
     if WORLD_SZ > 2:
+        # Wrap the model
         compiled = DDP(compiled, device_ids=[rank])
         map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
 
@@ -147,8 +143,7 @@ def serial(args, config, train_dataset, test_dataset):
     """
     Serial implementation running on cpu 
     """
-    # model = UNet(channels=[1, 64, 128, 256, 512, 512, 4096, 4096, 10]).to(rank)
-    model = ToyMpModel()
+    model = Net(1,728,10)
     compiled = torch.compile(model)
 
     # Transfer learning
