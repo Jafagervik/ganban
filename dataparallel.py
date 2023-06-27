@@ -84,7 +84,7 @@ class ConvBlock(nn.Module):
         x = self.a(x)
 
         # Some layers do 2 convolutions first, some do 3
-        for i in range(self.convs):
+        for _ in range(self.convs):
             x = self.conv2(x)
             x = self.batch_norm(x)
             x = self.a(x)
@@ -268,6 +268,7 @@ def main():
     highest_acc = 0.0
 
     start = time.time()
+
     for epoch in range(1, args.epochs + 1):
         train(args, compiled, device, train_loader, optimizer, epoch)
         highest_acc = test(args, compiled, device, test_loader, highest_acc)
