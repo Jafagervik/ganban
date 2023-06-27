@@ -1,83 +1,224 @@
-"""
-Entry point for training
-"""
-
+"""Main file for running and setting up training loop"""
 import torch
-from torch import nn
+import torch.nn as nn
+from torch import optim
+from helpers.datasetup import init_datasets, init_dataloaders
+from models.unet import UNet
+from models.toymod import ToyMpModel
 from torch.optim.lr_scheduler import StepLR
-import datasetup
-import engine
-from model import Net
-from utils import helpers
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.multiprocessing as mp
 
-from config import (BATCH_SIZE,  HIDDEN_UNITS,
-                    IMG_SIZE,  NUM_CHANNELS, RANDOM_SEED, TRAIN_DIR,
-                    TEST_DIR, BEST_CHCKPT_PATH )
+from torchvision import datasets, transforms
+from torch.utils.data.distributed import DistributedSampler
+import torch.nn.functional as F
+
+import engine
+from helpers import utils
+import os
+import yaml
+
+
+# OS SETUP
+os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '12356'
+torch.set_float32_matmul_precision('high')
+WORLD_SZ = torch.cuda.device_count() if torch.cuda.is_available() else 2
+
+
+def run_process(rank, args, config, train_dataset, test_dataset):
+    """
+    This function is to be run on every single processor 
+
+    Data is distributed evenly among processors, who all 
+    distribute data to corresponding gpus
+
+    Args:
+        rank, int: id of processor
+        args: struct: flags used when running script
+        config, yaml dict: all hyperparams and setup info
+    """
+    dist.init_process_group("nccl", world_size=WORLD_SZ, rank=rank)
+    # init_method="tcp://127.0.0.1:54621"
+
+    # We here set the correct gpu to run on based on which rank we're in
+    device = torch.device(f"cuda:{rank}")
+
+    # Seed all rngs
+    # utils.seed_all(args.seed)
+
+    # model = UNet(channels=[1, 64, 128, 256, 512, 512, 4096, 4096, 10]).to(rank)
+    model = ToyMpModel()
+    compiled = torch.compile(model).to(rank)
+
+    #dist.barrier()
+
+    # Wrap the model
+    compiled = DDP(compiled, device_ids=[rank])
+
+    # Transfer learning
+    if args.load_model:
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
+        compiled.load_state_dict(torch.load(config['checkpoint_best'], map_location=map_location))
+
+    # Creates dataloaders based on ranks
+    #train_dataloader, test_dataloader, class_names = create_dataloaders(config, world_size=WORLD_SZ, rank=rank)
+
+    train_kwargs = {'batch_size': 32}
+    test_kwargs = {'batch_size': 1000}
+                   
+    cuda_kwargs = {'num_workers': config['use_cpu'],
+                    'pin_memory': config['pin_memory']}
+
+    train_kwargs.update(cuda_kwargs)
+    test_kwargs.update(cuda_kwargs)
+
+    train_sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=WORLD_SZ,
+        rank=rank,
+        shuffle=config['shuffle']
+    )
+
+    test_sampler = DistributedSampler(
+        test_dataset,
+        num_replicas=WORLD_SZ,
+        rank=rank,
+        shuffle=config['shuffle']
+    )
+
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, sampler=train_sampler, **train_kwargs)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, sampler=test_sampler, **test_kwargs)
+
+    optimizer = optim.Adadelta(compiled.parameters(), lr=float(config['learning_rate']))
+    criterion = nn.CrossEntropyLoss().cuda(rank)
+
+    scheduler = StepLR(optimizer, step_size=config['step_size'], gamma=float(config['gamma']))
+
+    # writer = SummaryWriter() if args.debug else None
+    writer = None
+
+
+    print(f"Rank: {rank} | Device: {device=}")
+
+    engine.train(
+        model=compiled,
+        train_dataloader=train_dataloader,
+        test_dataloader=test_dataloader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=device,
+        config=config,
+        args=args,
+        rank=rank,
+        writer=writer)
+
+    dist.barrier()
+    dist.destroy_process_group()
+
+
+def setup_dataset():
+    transform=transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    # Handle downloads in it's own folder
+    dataset1 = datasets.MNIST('./data', train=True, download=True,
+                       transform=transform)
+    dataset2 = datasets.MNIST('./data', train=False,
+                       transform=transform)
+
+    return dataset1, dataset2
+
+
+def serial(args, config, train_dataset, test_dataset):
+    """
+    Serial implementation running on cpu 
+    """
+    # model = UNet(channels=[1, 64, 128, 256, 512, 512, 4096, 4096, 10]).to(rank)
+    model = ToyMpModel()
+    compiled = torch.compile(model)
+
+    # Transfer learning
+    if args.load_model:
+        compiled.load_state_dict(torch.load(config['checkpoint_best']))
+
+    # Creates dataloaders based on ranks
+    #train_dataloader, test_dataloader, class_names = create_dataloaders(config, world_size=WORLD_SZ, rank=rank)
+
+    train_kwargs = {'batch_size': 32}
+    test_kwargs = {'batch_size': 1000}
+
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
+
+    optimizer = optim.Adadelta(compiled.parameters(), lr=float(config['learning_rate']))
+    criterion = nn.CrossEntropyLoss()
+
+    scheduler = StepLR(optimizer, step_size=config['step_size'], gamma=float(config['gamma']))
+
+    # writer = SummaryWriter()
+    writer = None
+
+    # We here set the correct gpu to run on based on which rank we're in
+    device = torch.device("cpu")
+
+    engine.train(
+        model=compiled,
+        train_dataloader=train_dataloader,
+        test_dataloader=test_dataloader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=device,
+        config=config,
+        args=args,
+        writer=writer)
 
 
 def main():
     """
-    ENTRY POINT
+    Setup world and rank to distribute dataset over multiple gpus
     """
-    args = helpers.parse_args()
-    helpers.random_seed_all(RANDOM_SEED)
+    # Parse cml args
+    args = utils.parse_args()
 
-    # TODO: Parse args and use them while training
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Seed all rngs
+    utils.seed_all(args.seed)
+    
+    # Open config flie
+    with open("configs/config.yaml", "r") as stream:
+        config = yaml.safe_load(stream)
 
-    # Create transforms
-    data_transform = helpers.setup_transforms()
+    # Init datasets
+    train_ds, test_ds = setup_dataset()
 
-    # Create DataLoaders with help from data_setup.py
-    train_dataloader, test_dataloader, class_names = datasetup.create_dataloaders(
-        train_dir=TRAIN_DIR,
-        test_dir=TEST_DIR,
-        transform=data_transform,
-        batch_size=BATCH_SIZE
-    )
+    # Check whether or not to run on cuda
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
 
-    # Create model with help from model_builder.py
-    model = Net(
-        input_shape=NUM_CHANNELS,
-        hidden_units=HIDDEN_UNITS,
-        output_shape=len(class_names)
-    )
+    if not use_cuda:
+        # TODO: Serial setup
+        print("Setup serial run")
 
-    if args.load_model:
-        model = helpers.load_model(model, BEST_CHCKPT_PATH)
+        serial(args, config, train_ds, test_ds)
 
+        print("Finished serial training!")
+        return
 
-    compiled = torch.compile(model)
-    # Parallel model in case of multiple gpus
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
+    if args.debug:
+        for i in range(torch.cuda.device_count()):
+            print(torch.cuda.get_device_properties(i))
 
-    model.to(device)
+    arg_list = (args, config, train_ds, test_ds)
 
+    mp.spawn(fn=run_process,
+             nprocs=WORLD_SZ, 
+             args=arg_list)
 
-    # Set up loss function, optimizer and learning rate scheduler
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(),
-                                 lr=args.lr)
-    scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-
-    # Start training with help from engine.py
-    engine.train(model=model,
-                 train_dataloader=train_dataloader,
-                 test_dataloader=test_dataloader,
-                 criterion=criterion,
-                 optimizer=optimizer,
-                 scheduler=scheduler,
-                 epochs=args.epochs,
-                 device=device)
-
-    helpers.print_number_of_parameters(model)
-
-    # Save the model with help from utils.py
-    if args.save_model:
-        helpers.save_model(model=model,
-                           target_dir="checkpoints",
-                           model_name="ganban_model.pt")
+    print("Finished training!")
 
 
 if __name__ == "__main__":
