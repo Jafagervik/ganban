@@ -1,225 +1,167 @@
-"""
-engine.py basically defines what a train and a test step is
-"""
 from tqdm import tqdm
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
-import torch.distributed as dist
-
 import time
-from typing import Tuple
-from helpers import graphs
-
 
 def train_step(
-    model: nn.Module,
+    gen_AB: nn.Module,
+    gen_BA: nn.Module,
+    disc_A: nn.Module,
+    disc_B: nn.Module,
     dataloader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
+    criterion_gan: nn.Module,
+    criterion_cyc: nn.Module,
+    criterion_idn: nn.Module,
+    optimizer_gen: torch.optim.Optimizer,
+    optimizer_disc_A: torch.optim.Optimizer,
+    optimizer_disc_B: torch.optim.Optimizer,
     device: torch.device,
     epoch: int,
-    writer = None
-) -> Tuple[float, float]:
-    """Performs one epoch worth of training
+):
+    gen_AB.train()
+    gen_BA.train()
+    disc_A.train()
+    disc_B.train()
 
-    Returns:
-        train loss and accuracy
-    """
-    model.train() 
+    train_gen_loss, train_disc_A_loss, train_disc_B_loss = 0.0, 0.0, 0.0
 
-    train_loss, train_acc = 0, 0
+    for batch_idx, (real_A, real_B) in enumerate(dataloader):
+        real_A = real_A.to(device)
+        real_B = real_B.to(device)
+        fake_A = gen_BA(real_B)
+        fake_B = gen_AB(real_A)
+        real = torch.ones_like(disc_A(fake_A))
+        fake = torch.zeros_like(real)
 
-    # Go through the batches in current epoch
-    for batch_idx, (X, y) in enumerate(dataloader):
-        X = X.to(device)
-        y = y.to(device)
+        # Gen
+        optimizer_gen.zero_grad()
+        # id loss
+        id_A = criterion_idn(gen_BA(real_B), real_A)
+        id_B = criterion_idn(gen_AB(real_A), real_A)
+        loss_id = (id_A + id_B) / 2
+        # gan loss
+        gan_AB = criterion_gan(disc_B(fake_B), real)
+        gan_BA = criterion_gan(disc_A(fake_A), real)
+        loss_gan = (gan_AB + gan_BA) / 2
+        # cyc loss
+        cyc_A = criterion_cyc(gen_BA(fake_B), real_A)
+        cyc_B = criterion_cyc(gen_AB(fake_A), real_B)
+        loss_cyc = (cyc_A + cyc_B) / 2
 
-        y_hat = model(X)
+        loss_gen = loss_gan + loss_cyc * 10.0 + loss_id * 5.0 # add to config
+        loss_gen.backward()
+        optimizer_gen.step()
+        train_gen_loss += loss_gen
 
-        loss = criterion(y_hat, y)
-        train_loss += loss.item()
+        # DiscA
+        optimizer_disc_A.zero_grad()
+        loss_real = criterion_gan(disc_A(real_A), real)
+        # paper: last50 queue here
+        loss_fake = criterion_gan(disc_A(real_A), fake)
+        loss_A = (loss_real + loss_fake) / 2
+        loss_A.backward()
+        optimizer_disc_A.step()
+        train_disc_A_loss += loss_A
 
-        if writer:
-            writer.add_scalar("Loss/train", train_loss, epoch)
+        # DiscB
+        optimizer_disc_B.zero_grad()
+        loss_real = criterion_gan(disc_B(real_B), real)
+        # paper: last50 queue here
+        loss_fake = criterion_gan(disc_B(real_B), fake)
+        loss_B = (loss_real + loss_fake) / 2
+        loss_B.backward()
+        optimizer_disc_A.step()
+        train_disc_B_loss += loss_B
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        #print(
+        #    f"[Epoch {epoch}] "
+        #    f"[Batch {batch_idx}/{len(dataloader)}] "
+        #    f"[LossG: {loss_gen:.4f}] "
+        #    f"[LossD_A: {loss_A:.4f}] "
+        #    f"[LossD_B: {loss_B:.4f}]"
+        #)
 
-        y_pred_class = torch.argmax(torch.softmax(y_hat, dim=1), dim=1)
-        train_acc += (y_pred_class == y).sum().item()/len(y_hat)
+    train_gen_loss /= len(dataloader)
+    train_disc_A_loss /= len(dataloader)
+    train_disc_B_loss /= len(dataloader)
 
-    train_loss /= len(dataloader)
-    train_acc /= len(dataloader)
-
-
-    return train_loss, train_acc
-
-# @torch.no_grad
-# def val_step(
-#     model: nn.Module, 
-#     dataloader: DataLoader,
-#     criterion: nn.Module,
-#     device: torch.device,
-#     epoch: int) -> Tuple[float, float]:
-#     model.eval()
-#
-#     val_loss = 0.0
-#     val_acc = 0.0
-#     early_stop = False
-#
-#     for _, (X, y) in enumerate(dataloader):
-#         X = X.to(device)
-#         y = y.to(device)
-#
-#         val_pred_logits = model(X)
-#
-#         loss = criterion(val_pred_logits, y)
-#         val_loss += loss.item()
-#
-#         val_pred_labels = val_pred_logits.argmax(dim=1)
-#         val_acc += ((val_pred_labels == y).sum().item() /
-#                         len(val_pred_labels))
-#
-#
-#     val_loss /= len(dataloader)
-#     val_acc /= len(dataloader)
-#
-#     return val_loss, val_acc, early_stop 
-#
-
-@torch.inference_mode()
-def test_step(
-    model: nn.Module,
-    highest_acc: float,
-    best_epoch: int,
-    dataloader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-    epoch: int,
-    config
-) -> Tuple[float, float, float, int]:
-    """ Performs one epoch worth of testing
-
-    Returns:
-        test loss and accuracy as well as highest accuracy
-    """
-    model.eval()
-
-    test_loss, test_acc = 0, 0
-    
-    # Go through the batches in current epoch
-    for _, (X, y) in enumerate(dataloader):
-        X = X.to(device)
-        y = y.to(device)
-
-        test_pred_logits = model(X)
-
-        loss = criterion(test_pred_logits, y)
-        test_loss += loss.item()
-
-        test_pred_labels = test_pred_logits.argmax(dim=1)
-        test_acc += ((test_pred_labels == y).sum().item() /
-                        len(test_pred_labels))
-
-
-        if test_acc > highest_acc:
-            highest_acc = test_acc
-            best_epoch = epoch
-            torch.save(model.state_dict(), config['checkpoint_best'])
-        # elif epoch - best_epoch > config['early_stop_tresh']:
-        #     print(f"Early stopping at epoch: {epoch}")
-        #     # TODO: Add validation set to prevent overfitting and move early stopping there
-        #     early_stop = True
-        #     break
-
-    test_loss /= len(dataloader)
-    test_acc /= len(dataloader)
-
-    return test_loss, test_acc, highest_acc, best_epoch
-
+    return train_gen_loss, train_disc_A_loss, train_disc_B_loss
 
 def train(
-    model,
+    gen_AB,
+    gen_BA,
+    disc_A,
+    disc_B,
     train_dataloader,
     test_dataloader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: StepLR,
+    criterion_gan: nn.Module,
+    criterion_cyc: nn.Module,
+    criterion_idn: nn.Module,
+    optimizer_gen: torch.optim.Optimizer,
+    optimizer_disc_A: torch.optim.Optimizer,
+    optimizer_disc_B: torch.optim.Optimizer,
+    scheduler_gen: StepLR,
+    scheduler_disc_A: StepLR,
+    scheduler_disc_B: StepLR,
     device: torch.device,
     config,
     args,
-    rank: int = 0,
-    writer = None
 ):
-    results = {
-        "0": {
-            "train_loss": [0.0],
-            "train_acc": [0.0],
-            "test_loss": [0.0],
-            "test_acc": [0.0],
-        },
-        "1": {
-            "train_loss": [0.0],
-            "train_acc": [0.0],
-            "test_loss": [0.0],
-            "test_acc": [0.0],
-        },
-    }
-
-
     highest_acc = 0.0
     best_epoch = -1
 
     start = time.time() 
 
-    for epoch in tqdm(range(1, config['epochs']+ 1)):
-        train_loss, train_acc = train_step(
-            model, train_dataloader, criterion, optimizer, device, epoch, writer if writer else None)
+    for epoch in tqdm(range(0, config['epochs'])):
+        loss = train_step(
+            gen_AB,
+            gen_BA,
+            disc_A,
+            disc_B,
+            train_dataloader,
+            criterion_gan,
+            criterion_cyc,
+            criterion_idn,
+            optimizer_gen,
+            optimizer_disc_A,
+            optimizer_disc_B,
+            device,
+            epoch,
+        )
 
         # val_step()
 
-        test_loss, test_acc, highest_acc, best_epoch = test_step(
-            model, highest_acc, best_epoch, test_dataloader, criterion, device, epoch, config)
+        #test_loss, test_acc, highest_acc, best_epoch = test_step(
+        #    model, highest_acc, best_epoch, test_dataloader, criterion, device, epoch, config)
 
-        scheduler.step()
+        scheduler_gen.step()
+        scheduler_disc_A.step()
+        scheduler_disc_B.step()
 
         if args.dry_run:
             break
 
         print(
-            f"Rank {rank} | "
             f"Epoch: {epoch} | "
-            f"train_loss: {train_loss:.4f} | "
-            f"train_acc: {train_acc:.4f} | "
-            f"test_loss: {test_loss:.4f} | "
-            f"test_acc: {test_acc:.4f}"
+            f"train_gen_loss: {loss[0]:.4f} | "
+            f"train_dcA_loss: {loss[1]:.4f} | "
+            f"train_dcB_loss: {loss[2]:.4f}"
         )
-
-        results["%d" % rank]["train_acc"].append(train_loss)
-        results["%d" % rank]["train_loss"].append(train_loss)
-        results["%d" % rank]["test_acc"].append(train_loss)
-        results["%d" % rank]["test_loss"].append(train_loss)
 
         # if early_stop: 
         #     break
 
 
-    if writer:
-        writer.flush()
-
     end = time.time()
 
-    if rank == 0:
-        print(f"Training complete in {end - start} seconds")
-        print(f"Best epoch was: {best_epoch}")
+    print(f"Training complete in {end - start} seconds")
+    print(f"Best epoch was: {best_epoch}")
 
-        # Save model to file if selected
-        if args.save_model:
-            torch.save(model.state_dict(), config['checkpoint_last'])
+    # Save model to file if selected
+    if args.save_model:
+        torch.save(gen_AB.state_dict(), os.join.path(config['checkpoint_dir'], "last_gen_AB"))
+        torch.save(gen_BA.state_dict(), os.join.path(config['checkpoint_dir'], "last_gen_BA"))
 
-        graphs.plot_acc_loss(results)
-    
-
+    #graphs.plot_acc_loss(results)

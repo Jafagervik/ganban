@@ -1,187 +1,33 @@
-"""Main file for running and setting up training loop"""
 import torch
 import torch.nn as nn
 from torch import optim
-from helpers.datasetup import init_datasets, init_dataloaders
-from models.model import Net 
-from torch.optim.lr_scheduler import StepLR
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.multiprocessing as mp
-
 from torchvision import datasets, transforms
-from torch.utils.data.distributed import DistributedSampler
-import torch.nn.functional as F
-
-import engine
-from helpers import utils
 import os
 import yaml
+from PIL import Image
 
+from models.cyclegan import *
+import engine
+from helpers import datasetup, utils
 
-# OS SETUP
-os.environ['MASTER_ADDR'] = 'localhost'
-os.environ['MASTER_PORT'] = '12356'
-torch.set_float32_matmul_precision('high')
-WORLD_SZ = torch.cuda.device_count() if torch.cuda.is_available() else 2
-
-
-def run_process(rank, args, config, train_dataset, test_dataset):
-    """
-    This function is to be run on every single processor 
-
-    Data is distributed evenly among processors, who all 
-    distribute data to corresponding gpus
-
-    Args:
-        rank, int: id of processor
-        args: struct: flags used when running script
-        config, yaml dict: all hyperparams and setup info
-    """
-    # if WORLD_SZ > 1:
-    dist.init_process_group("nccl", world_size=WORLD_SZ, rank=rank)
-
-    # We here set the correct gpu to run on based on which rank we're in
-    device = torch.device(f"cuda:{rank}")
-
-    model = Net(1,728,10)
-    compiled = torch.compile(model).to(rank)
-
-    map_location = None
-    if WORLD_SZ > 2:
-        # Wrap the model
-        compiled = DDP(compiled, device_ids=[rank])
-        map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-
-    # Transfer learning
-    if args.load_model:
-        compiled.load_state_dict(torch.load(config['checkpoint_best'], map_location=map_location if map_location else None))
-
-    # Creates dataloaders based on ranks
-    #train_dataloader, test_dataloader, class_names = create_dataloaders(config, world_size=WORLD_SZ, rank=rank)
-
-    train_kwargs = {'batch_size': 32}
-    test_kwargs = {'batch_size': 1000}
-                   
-    cuda_kwargs = {'num_workers': config['use_cpu'],
-                    'pin_memory': config['pin_memory']}
-
-    train_kwargs.update(cuda_kwargs)
-    test_kwargs.update(cuda_kwargs)
-
-    train_sampler, test_sampler = None, None
-
-    if WORLD_SZ > 1:
-        train_sampler = DistributedSampler(
-            train_dataset,
-            num_replicas=WORLD_SZ,
-            rank=rank,
-            shuffle=config['shuffle']
-        )
-
-        test_sampler = DistributedSampler(
-            test_dataset,
-            num_replicas=WORLD_SZ,
-            rank=rank,
-            shuffle=config['shuffle']
-        )
-
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, 
-                                                   shuffle=False if train_sampler else True, 
-                                                   sampler=train_sampler if train_sampler else None, 
-                                                   **train_kwargs)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, 
-                                                    shuffle=False if test_sampler else True, 
-                                                  sampler=test_sampler if test_sampler else None,
-                                                  **test_kwargs)
-
-    optimizer = optim.Adadelta(compiled.parameters(), lr=float(config['learning_rate']))
-    criterion = nn.CrossEntropyLoss().cuda(rank)
-
-    scheduler = StepLR(optimizer, step_size=config['step_size'], gamma=float(config['gamma']))
-
-    # writer = SummaryWriter() if args.debug else None
-    writer = None
-
-
-    print(f"Rank: {rank} | Device: {device=}")
-
-    engine.train(
-        model=compiled,
-        train_dataloader=train_dataloader,
-        test_dataloader=test_dataloader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        device=device,
-        config=config,
-        args=args,
-        rank=rank,
-        writer=writer)
-
-    if WORLD_SZ > 1:
-        dist.barrier()
-    dist.destroy_process_group()
-
+# i will put these in config later...
+batch_size = 2 # lots of vram...
+input_shape = (3, 256, 256)
+c, w, h = input_shape
 
 def setup_dataset():
-    transform=transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
+    transform = transforms.Compose([
+            transforms.Resize((w, h), Image.Resampling.BICUBIC),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
-    # Handle downloads in it's own folder
-    dataset1 = datasets.MNIST('./data', train=True, download=True,
-                       transform=transform)
-    dataset2 = datasets.MNIST('./data', train=False,
-                       transform=transform)
+    root_dir = os.path.join("data", "apple2orange")
+    train_set = datasetup.cycleGanDataset(root_dir, train=True, transform=transform)
+    test_set = datasetup.cycleGanDataset(root_dir, train=False, transform=transform)
 
-    return dataset1, dataset2
-
-
-def serial(args, config, train_dataset, test_dataset):
-    """
-    Serial implementation running on cpu 
-    """
-    model = Net(1,728,10)
-    compiled = torch.compile(model)
-
-    # Transfer learning
-    if args.load_model:
-        compiled.load_state_dict(torch.load(config['checkpoint_best']))
-
-    # Creates dataloaders based on ranks
-    #train_dataloader, test_dataloader, class_names = create_dataloaders(config, world_size=WORLD_SZ, rank=rank)
-
-    train_kwargs = {'batch_size': 32}
-    test_kwargs = {'batch_size': 1000}
-
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
-
-    optimizer = optim.Adadelta(compiled.parameters(), lr=float(config['learning_rate']))
-    criterion = nn.CrossEntropyLoss()
-
-    scheduler = StepLR(optimizer, step_size=config['step_size'], gamma=float(config['gamma']))
-
-    # writer = SummaryWriter()
-    writer = None
-
-    # We here set the correct gpu to run on based on which rank we're in
-    device = torch.device("cpu")
-
-    engine.train(
-        model=compiled,
-        train_dataloader=train_dataloader,
-        test_dataloader=test_dataloader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        device=device,
-        config=config,
-        args=args,
-        writer=writer)
-
+    return train_set, test_set
 
 def main():
     """
@@ -191,8 +37,8 @@ def main():
     args = utils.parse_args()
 
     # Seed all rngs
-    utils.seed_all(args.seed)
-    
+    # utils.seed_all(args.seed)
+
     # Open config flie
     with open("configs/config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
@@ -207,7 +53,7 @@ def main():
         # TODO: Serial setup
         print("Setup serial run")
 
-        serial(args, config, train_ds, test_ds)
+        #serial(args, config, train_ds, test_ds)
 
         print("Finished serial training!")
         return
@@ -216,11 +62,75 @@ def main():
         for i in range(torch.cuda.device_count()):
             print(torch.cuda.get_device_properties(i))
 
-    arg_list = (args, config, train_ds, test_ds)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    mp.spawn(fn=run_process,
-             nprocs=WORLD_SZ, 
-             args=arg_list)
+    gen_AB = Generator(c).to(device)
+    gen_BA = Generator(c).to(device)
+    disc_A = Discriminator(c).to(device)
+    disc_B = Discriminator(c).to(device)
+
+    gen_AB.apply(weights_init)
+    gen_BA.apply(weights_init)
+    disc_A.apply(weights_init)
+    disc_B.apply(weights_init)
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_ds,
+        shuffle=True,
+        batch_size = batch_size,
+    )
+
+    test_dataloader = torch.utils.data.DataLoader(
+        test_ds,
+        shuffle=False,
+        batch_size = batch_size,
+    )
+
+    optim_gen = optim.Adam(
+        gen_AB.parameters(),
+        lr=float(config['learning_rate']),
+        betas=(0.5, 0.999)
+    )
+    optim_disc_A = optim.Adam(
+        disc_A.parameters(),
+        lr=float(config['learning_rate']),
+        betas=(0.5, 0.999)
+    )
+    optim_disc_B = optim.Adam(
+        disc_B.parameters(),
+        lr=float(config['learning_rate']),
+        betas=(0.5, 0.999)
+    )
+
+    criterion_gan = torch.nn.MSELoss().to(device)
+    criterion_cyc = torch.nn.L1Loss().to(device)
+    criterion_idn = torch.nn.L1Loss().to(device)
+
+    lr_l = lambda epoch: 1.0 if epoch < 100 else max(0.0, 1.0 - (epoch - 100) / 100.0)
+    sched_gen = optim.lr_scheduler.LambdaLR(optim_gen, lr_lambda=lr_l)
+    sched_disc_A = optim.lr_scheduler.LambdaLR(optim_disc_A, lr_lambda=lr_l)
+    sched_disc_B = optim.lr_scheduler.LambdaLR(optim_disc_B, lr_lambda=lr_l)
+
+    engine.train(
+        gen_AB=gen_AB,
+        gen_BA=gen_BA,
+        disc_A=disc_A,
+        disc_B=disc_B,
+        train_dataloader=train_dataloader,
+        test_dataloader=test_dataloader,
+        criterion_gan=criterion_gan,
+        criterion_cyc=criterion_cyc,
+        criterion_idn=criterion_idn,
+        optimizer_gen=optim_gen,
+        optimizer_disc_A=optim_disc_A,
+        optimizer_disc_B=optim_disc_B,
+        scheduler_gen=sched_gen,
+        scheduler_disc_A=sched_disc_A,
+        scheduler_disc_B=sched_disc_B,
+        device=device,
+        config=config,
+        args=args,
+    )
 
     print("Finished training!")
 
