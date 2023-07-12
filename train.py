@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch import optim
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 import os
 import yaml
@@ -15,17 +16,21 @@ batch_size = 2 # lots of vram...
 input_shape = (3, 256, 256)
 c, w, h = input_shape
 
-def setup_dataset():
-    transform = transforms.Compose([
+def setup_dataset(root_dir):
+    train_transform = transforms.Compose([
             transforms.Resize((w, h), Image.Resampling.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
+    test_transform = transforms.Compose([
+            transforms.Resize((w, h), Image.Resampling.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
 
-    root_dir = os.path.join("data", "apple2orange")
-    train_set = datasetup.cycleGanDataset(root_dir, train=True, transform=transform)
-    test_set = datasetup.cycleGanDataset(root_dir, train=False, transform=transform)
+    train_set = datasetup.cycleGanDataset(root_dir, train=True, transform=train_transform)
+    test_set = datasetup.cycleGanDataset(root_dir, train=False, transform=test_transform)
 
     return train_set, test_set
 
@@ -44,7 +49,8 @@ def main():
         config = yaml.safe_load(stream)
 
     # Init datasets
-    train_ds, test_ds = setup_dataset()
+    root_dir = os.path.join(config['data_path'], config['data_set'])
+    train_ds, test_ds = setup_dataset(root_dir)
 
     # Check whether or not to run on cuda
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -77,29 +83,29 @@ def main():
     train_dataloader = torch.utils.data.DataLoader(
         train_ds,
         shuffle=True,
-        batch_size = batch_size,
+        batch_size = config['batch_size'],
     )
 
     test_dataloader = torch.utils.data.DataLoader(
         test_ds,
         shuffle=False,
-        batch_size = batch_size,
+        batch_size = 6,
     )
 
     optim_gen = optim.Adam(
-        gen_AB.parameters(),
+        list(gen_AB.parameters()) + list(gen_BA.parameters()),
         lr=float(config['learning_rate']),
-        betas=(0.5, 0.999)
+        betas=(float(config['beta1']), float(config['beta2'])),
     )
     optim_disc_A = optim.Adam(
         disc_A.parameters(),
         lr=float(config['learning_rate']),
-        betas=(0.5, 0.999)
+        betas=(float(config['beta1']), float(config['beta2'])),
     )
     optim_disc_B = optim.Adam(
         disc_B.parameters(),
         lr=float(config['learning_rate']),
-        betas=(0.5, 0.999)
+        betas=(float(config['beta1']), float(config['beta2'])),
     )
 
     criterion_gan = torch.nn.MSELoss().to(device)
@@ -110,6 +116,8 @@ def main():
     sched_gen = optim.lr_scheduler.LambdaLR(optim_gen, lr_lambda=lr_l)
     sched_disc_A = optim.lr_scheduler.LambdaLR(optim_disc_A, lr_lambda=lr_l)
     sched_disc_B = optim.lr_scheduler.LambdaLR(optim_disc_B, lr_lambda=lr_l)
+
+    writer = SummaryWriter()
 
     engine.train(
         gen_AB=gen_AB,
@@ -130,6 +138,7 @@ def main():
         device=device,
         config=config,
         args=args,
+        writer=writer,
     )
 
     print("Finished training!")
