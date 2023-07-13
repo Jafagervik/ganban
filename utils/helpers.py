@@ -92,3 +92,32 @@ def load_model(net: nn.Module, path: str) -> nn.Module:
     """
     net.load_state_dict(torch.load(path))
     return net
+
+def print_train_time(start, end, device=None):
+    """Prints difference between start and end time.
+
+    Args:
+        start (float): Start time of computation (preferred in timeit format). 
+        end (float): End time of computation.
+        device ([type], optional): Device that compute is running on. Defaults to None.
+
+    Returns:
+        float: time between start and end in seconds (higher is longer).
+    """
+    total_time = end - start
+    print(f"\nTrain time on {device}: {total_time:.3f} seconds")
+    return total_time
+
+def calc_accuracy(y_true, y_pred):
+    """Calculates accuracy
+
+    Args:
+        y_true: Ground Truth
+        y_pred: Predictions
+
+    Returns:
+        Accuracy value between y_true and y_pred
+    """
+    correct = torch.eq(y_true, y_pred).sum().item()
+    acc = (correct / len(y_pred)) * 100
+    return acc
