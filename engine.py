@@ -17,7 +17,6 @@ def train_step(
     disc_A: nn.Module,
     disc_B: nn.Module,
     train_dataloader: DataLoader,
-    test_dataloader: DataLoader,
     criterion_gan: nn.Module,
     criterion_cyc: nn.Module,
     criterion_idn: nn.Module,
@@ -89,46 +88,9 @@ def train_step(
         optimizer_disc_B.step()
         train_disc_B_loss += loss_B
 
-        if False and batch_idx % 100 == 0:
-            print(
-                f"[Epoch {epoch}] "
-                f"[Batch {batch_idx}/{len(train_dataloader)}] "
-                f"[LossG: {loss_gen:.4f}] "
-                f"[LossD_A: {loss_A:.4f}] "
-                f"[LossD_B: {loss_B:.4f}]"
-            )
-
-        if True and batch_idx % 50 == 0: # only at start of epoch
-            with torch.no_grad():
-                gen_AB.eval()
-                gen_BA.eval()
-
-                (real_A, real_B) = next(iter(test_dataloader))
-                real_A = real_A.to(device)
-                real_B = real_B.to(device)
-
-                fake_A = gen_BA(real_B)
-                fake_B = gen_AB(real_A)
-
-                fake_Acyc = gen_BA(fake_B)
-                fake_Bcyc = gen_AB(fake_A)
-
-                real_A = make_grid(real_A, nrow=6, normalize=True)
-                real_B = make_grid(real_B, nrow=6, normalize=True)
-                fake_A = make_grid(fake_A, nrow=6, normalize=True)
-                fake_B = make_grid(fake_B, nrow=6, normalize=True)
-                fake_Acyc = make_grid(fake_Acyc, nrow=6, normalize=True)
-                fake_Bcyc = make_grid(fake_Bcyc, nrow=6, normalize=True)
-                image_grid = torch.cat((real_A, fake_B, fake_Acyc, real_B, fake_A, fake_Bcyc), 1)
-                writer.add_image('gen_images', image_grid, global_step=step)
-                save_image(image_grid, os.path.join("runs", f"{epoch}_{batch_idx}.png"), normalize=False)
-
-                gen_AB.train()
-                gen_BA.train()
-
-        writer.add_scalar("Loss_Gen", loss_gen, global_step=step)
-        writer.add_scalar("Loss_DiscA", loss_A, global_step=step)
-        writer.add_scalar("Loss_DiscB", loss_B, global_step=step)
+        writer.add_scalar("Loss_Gen/train", loss_gen, global_step=step)
+        writer.add_scalar("Loss_DiscA/train", loss_A, global_step=step)
+        writer.add_scalar("Loss_DiscB/train", loss_B, global_step=step)
         step += 1
 
     train_gen_loss /= len(train_dataloader)
@@ -136,6 +98,96 @@ def train_step(
     train_disc_B_loss /= len(train_dataloader)
 
     return train_gen_loss, train_disc_A_loss, train_disc_B_loss
+
+@torch.inference_mode()
+def test_step(
+    gen_AB: nn.Module,
+    gen_BA: nn.Module,
+    disc_A: nn.Module,
+    disc_B: nn.Module,
+    test_dataloader: DataLoader,
+    criterion_gan: nn.Module,
+    criterion_cyc: nn.Module,
+    criterion_idn: nn.Module,
+    device: torch.device,
+    epoch: int,
+    writer: SummaryWriter,
+):
+    gen_AB.eval()
+    gen_BA.eval()
+    disc_A.eval()
+    disc_B.eval()
+
+    test_gen_loss, test_disc_A_loss, test_disc_B_loss = 0.0, 0.0, 0.0
+
+    for batch_idx, (real_A, real_B) in enumerate(test_dataloader):
+        real_A = real_A.to(device)
+        real_B = real_B.to(device)
+        fake_A = gen_BA(real_B)
+        fake_B = gen_AB(real_A)
+        real = torch.ones_like(disc_A(fake_A))
+        fake = torch.zeros_like(real)
+
+        # Gen
+        # id loss
+        id_A = criterion_idn(gen_BA(real_A), real_A)
+        id_B = criterion_idn(gen_AB(real_B), real_B)
+        loss_id = (id_A + id_B) / 2
+        # gan loss
+        gan_AB = criterion_gan(disc_B(fake_B), real)
+        gan_BA = criterion_gan(disc_A(fake_A), real)
+        loss_gan = (gan_AB + gan_BA) / 2
+        # cyc loss
+        cyc_A = criterion_cyc(gen_BA(fake_B), real_A)
+        cyc_B = criterion_cyc(gen_AB(fake_A), real_B)
+        loss_cyc = (cyc_A + cyc_B) / 2
+
+        loss_gen = loss_gan + loss_cyc * 10.0 + loss_id * 5.0
+        test_gen_loss += loss_gen
+
+        # DiscA
+        l_real = criterion_gan(disc_A(real_A), real)
+        # paper: last50 queue here
+        l_fake = criterion_gan(disc_A(fake_A), fake)
+        loss_A = (l_real + l_fake) / 2
+        test_disc_A_loss += loss_A
+
+        # DiscB
+        l_real = criterion_gan(disc_B(real_B), real)
+        # paper: last50 queue here
+        l_fake = criterion_gan(disc_B(fake_B), fake)
+        loss_B = (l_real + l_fake) / 2
+        test_disc_B_loss += loss_B
+
+        if False and batch_idx % 100 == 0:
+            print(
+                f"[Epoch {epoch}] "
+                f"[Batch {batch_idx}/{len(test_dataloader)}] "
+                f"[LossG: {loss_gen:.4f}] "
+                f"[LossD_A: {loss_A:.4f}] "
+                f"[LossD_B: {loss_B:.4f}]"
+            )
+
+        if batch_idx == 0: # only at start of epoch
+            fake_Acyc = gen_BA(fake_B)
+            fake_Bcyc = gen_AB(fake_A)
+
+            real_A = make_grid(real_A, nrow=6, normalize=True)
+            real_B = make_grid(real_B, nrow=6, normalize=True)
+            fake_A = make_grid(fake_A, nrow=6, normalize=True)
+            fake_B = make_grid(fake_B, nrow=6, normalize=True)
+            fake_Acyc = make_grid(fake_Acyc, nrow=6, normalize=True)
+            fake_Bcyc = make_grid(fake_Bcyc, nrow=6, normalize=True)
+            image_grid = torch.cat((real_A, fake_B, fake_Acyc, real_B, fake_A, fake_Bcyc), 1)
+            writer.add_image('gen_images/test', image_grid, global_step=epoch)
+            save_image(image_grid, os.path.join("runs", f"{epoch:03}.png"), normalize=False)
+
+    test_gen_loss /= len(test_dataloader)
+    test_disc_A_loss /= len(test_dataloader)
+    test_disc_B_loss /= len(test_dataloader)
+
+    return test_gen_loss, test_disc_A_loss, test_disc_B_loss
+
 
 def train(
     gen_AB,
@@ -158,19 +210,19 @@ def train(
     args,
     writer: SummaryWriter,
 ):
-    highest_acc = 0.0
+    best_gen_loss = float('inf')
     best_epoch = -1
 
     start = time.time() 
     step = 0
     for epoch in tqdm(range(0, config['epochs'])):
-        loss = train_step(
+        print("")
+        train_loss = train_step(
             gen_AB,
             gen_BA,
             disc_A,
             disc_B,
             train_dataloader,
-            test_dataloader,
             criterion_gan,
             criterion_cyc,
             criterion_idn,
@@ -188,22 +240,50 @@ def train(
         scheduler_disc_A.step()
         scheduler_disc_B.step()
 
-        # val_step()
+        print(
+            f"Epoch: {epoch} | "
+            f"train_gen_loss: {train_loss[0]:.4f} | "
+            f"train_dcA_loss: {train_loss[1]:.4f} | "
+            f"train_dcB_loss: {train_loss[2]:.4f}"
+        )
 
-        #test_loss, test_acc, highest_acc, best_epoch = test_step(
-        #    model, highest_acc, best_epoch, test_dataloader, criterion, device, epoch, config)
+        test_loss = test_step(
+            gen_AB,
+            gen_BA,
+            disc_A,
+            disc_B,
+            test_dataloader,
+            criterion_gan,
+            criterion_cyc,
+            criterion_idn,
+            device,
+            epoch,
+            writer,
+        )
+
+        if test_loss[0] < best_gen_loss:
+            best_gen_loss = test_loss[0]
+            best_epoch = epoch
+
+        print(
+            f"Epoch: {epoch} | "
+            f"test_gen_loss: {test_loss[0]:.4f} | "
+            f"test_dcA_loss: {test_loss[1]:.4f} | "
+            f"test_dcB_loss: {test_loss[2]:.4f}"
+        )
+
+        writer.add_scalar("Loss_Gen/test", test_loss[0], global_step=epoch)
+        writer.add_scalar("Loss_DiscA/test", test_loss[1], global_step=epoch)
+        writer.add_scalar("Loss_DiscB/test", test_loss[2], global_step=epoch)
 
         if args.dry_run:
             break
 
-        print(
-            f"Epoch: {epoch} | "
-            f"train_gen_loss: {loss[0]:.4f} | "
-            f"train_dcA_loss: {loss[1]:.4f} | "
-            f"train_dcB_loss: {loss[2]:.4f}"
-        )
+        if (True or args.save_model) and best_epoch == epoch:
+            torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], "best_gen_AB"))
+            torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], "best_gen_BA"))
 
-        if epoch % 5 == 0:
+        if (True or args.save_model) and epoch % 5 == 0:
             torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_gen_AB"))
             torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_gen_BA"))
             torch.save(disc_A.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_disc_A"))
@@ -218,7 +298,7 @@ def train(
     print(f"Best epoch was: {best_epoch}")
 
     # Save model to file if selected
-    if args.save_model:
+    if (True or args.save_model):
         torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], "last_gen_AB"))
         torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], "last_gen_BA"))
 

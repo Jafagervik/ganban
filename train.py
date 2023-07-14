@@ -18,13 +18,15 @@ c, w, h = input_shape
 
 def setup_dataset(root_dir):
     train_transform = transforms.Compose([
-            transforms.Resize((w, h), Image.Resampling.BICUBIC),
+            transforms.Resize(256, Image.Resampling.BICUBIC),
+            transforms.RandomCrop(256),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
     test_transform = transforms.Compose([
-            transforms.Resize((w, h), Image.Resampling.BICUBIC),
+            transforms.Resize(256, Image.Resampling.BICUBIC),
+            transforms.CenterCrop(256),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
