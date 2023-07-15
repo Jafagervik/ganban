@@ -69,7 +69,6 @@ def train_step(
 
         fake = torch.zeros_like(real)
         l_real = criterion_gan(disc_A(real_A), real)
-        # paper: last50 queue here
         l_fake = criterion_gan(disc_A(fake_A), fake)
         loss_A = (l_real + l_fake) / 2
         loss_A.backward()
@@ -81,7 +80,6 @@ def train_step(
         fake_B = gen_AB(real_A)
 
         l_real = criterion_gan(disc_B(real_B), real)
-        # paper: last50 queue here
         l_fake = criterion_gan(disc_B(fake_B), fake)
         loss_B = (l_real + l_fake) / 2
         loss_B.backward()
@@ -280,14 +278,14 @@ def train(
             break
 
         if (True or args.save_model) and best_epoch == epoch:
-            torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], "best_gen_AB"))
-            torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], "best_gen_BA"))
+            torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_best_gen_AB"))
+            torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_best_gen_BA"))
 
-        if (True or args.save_model) and epoch % 5 == 0:
-            torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_gen_AB"))
-            torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_gen_BA"))
-            torch.save(disc_A.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_disc_A"))
-            torch.save(disc_B.state_dict(), os.path.join(config['checkpoint_dir'], f"epoch_{epoch}_disc_B"))
+        if (True or args.save_model) and epoch % 20 == 0:
+            torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_{epoch}_gen_AB"))
+            torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_{epoch}_gen_BA"))
+            torch.save(disc_A.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_{epoch}_disc_A"))
+            torch.save(disc_B.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_{epoch}_disc_B"))
 
         # if early_stop: 
         #     break
@@ -299,7 +297,7 @@ def train(
 
     # Save model to file if selected
     if (True or args.save_model):
-        torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], "last_gen_AB"))
-        torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], "last_gen_BA"))
+        torch.save(gen_AB.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_last_gen_AB"))
+        torch.save(gen_BA.state_dict(), os.path.join(config['checkpoint_dir'], f"{config['data_set']}_last_gen_BA"))
 
     #graphs.plot_acc_loss(results)
