@@ -4,9 +4,8 @@
 
 Correcting and coloring old and damaged images using a CycleGAN
 
-| | | | |
-| :----------- | :------: | ------------: | --- |
 | ![image](examples/portrait0_in.png) | ![image](examples/portrait1_in.png) | ![image](examples/portrait2_in.png) | ![image](examples/portrait3_in.png) |
+| --- | --- | --- | --- |
 | ![image](examples/portrait0_out.png) | ![image](examples/portrait1_out.png) | ![image](examples/portrait2_out.png) | ![image](examples/portrait3_out.png) |
 
 ## Converting Images
