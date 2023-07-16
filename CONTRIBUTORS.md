@@ -1,4 +1,4 @@
-Joergen  
-Nico 
-Lachlan Moore
-John Pickar
+Joergen
+Nico
+Lachlan
+John

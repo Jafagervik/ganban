@@ -53,6 +53,7 @@ class Generator(nn.Module):
         super().__init__()
 
         self.model = nn.Sequential(
+            # Encoder
             nn.ReflectionPad2d(input_shape),
             nn.Conv2d(input_shape, 64, kernel_size=7),
             nn.InstanceNorm2d(64),
@@ -61,7 +62,7 @@ class Generator(nn.Module):
             SamplingBlock(64, 128, 3, 2, 1),
             SamplingBlock(128, 256, 3, 2, 1),
 
-            # 9 blocks
+            # Transformer/9 blocks
             ResidualBlock(256, 3),
             ResidualBlock(256, 3),
             ResidualBlock(256, 3),
@@ -72,6 +73,7 @@ class Generator(nn.Module):
             ResidualBlock(256, 3),
             ResidualBlock(256, 3),
 
+            # Decoder/transpose conv
             nn.Upsample(scale_factor=2),
             SamplingBlock(256, 128, 3, 1, 1),
             nn.Upsample(scale_factor=2),

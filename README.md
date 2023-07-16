@@ -2,52 +2,65 @@
 
 [![.github/workflows/ci.yml](https://github.com/github/gh-actions-importer/actions/workflows/ci.yml/badge.svg)](https://github.com/github/gh-actions-importer/actions/workflows/ci.yml)
 
-![Latex Template](https://www.overleaf.com/project/64701303929650ecbc4f107c)
+Correcting and coloring old and damaged images using a CycleGAN
 
+| | | | |
+| :----------- | :------: | ------------: | --- |
+| ![image](examples/portrait0_in.png) | ![image](examples/portrait1_in.png) | ![image](examples/portrait2_in.png) | ![image](examples/portrait3_in.png) |
+| ![image](examples/portrait0_out.png) | ![image](examples/portrait1_out.png) | ![image](examples/portrait2_out.png) | ![image](examples/portrait3_out.png) |
 
+## Converting Images
+```sh
+python convert.py input_file
+```
 
-## Motivation
+This will fix a damaged image and and will colorize grayscale images.
 
-had to do this for a course in Japan
+This requires the weights `ganban.pth` to be in the same directory. This can be downloaded from [here](https://0x0.st/Hj3_.zip).
+
+Additional arguments are as follows:
+
+```
+usage: convert.py [-h] [-i] [-m] [-r] input_file [input_file ...]
+
+Converts an old damaged image into a new colored image. Outputs a file(s) with the name input_file.<step>.png
+
+positional arguments:
+  input_file          input file(s)
+
+options:
+  -h, --help          show this help message and exit
+  -i, --intermediate  Output (save) the intermediate states
+  -m, --multi-domain  Use the multiple domain/model approach (damaged<>fixed<>color)
+  -r, --reverse       Reverses the process (corrected image --> old image)
+```
+
+## Dataset
+
+You can download the dataset used [here](https://0x0.st/Hj39.zip). It contains ~900 unique images trained on for 3 different models.
 
 ## Structure
 
-### model.py
+### data 
 
-Contains *ONLY* your model
-
-
-### train.py
-
-Entry point. here we just mix everything and run it all 
-
-
-### detect.py
-
-TODO: must be implemented before anything else 
+Dataset location and directory to save models in.
 
 ### config.py
 
-Contains all hyperparameters
-And yes, we're using a python file and not yaml 
+Contains the hyperparameters.
 
-### data 
+### cyclegan.py
 
-Folder to store your train, test and val images
-
-### utils/helpers.py
-
-Annoying code you need to get up and running
-
-### utils/visuals.py
-
-Don't ask me, I am not a data scientist or analyst
-Some cool plotting goes into here 
+Contains the generator, discriminator, and initialization weights.
 
 ### datasetup.py
 
-Set up and install your data inside here
+Contains the class (Dataset) that interacts with the data
 
-### eval.py
+### engine.py
 
-Run your own data here to only test
+Setup for the train and test steps
+
+### train.py
+
+Entry point to begin training the model. To start, execute `python train.py`.
